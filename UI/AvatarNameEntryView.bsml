@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bg xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://monkeymanboy.github.io/BSML-Docs/BSMLSchema.xsd">
+  <vertical pad="8" spacing="4">
+    <text text="Name your preset. A subfolder is created under Avatar Storage with AvatarData.dat inside." font-size="3.5" align="Center"/>
+    <string-setting id="AvatarNameInput" text="Preset name" show-buttons="false"/>
+    <horizontal spacing="2">
+      <button text="Save" on-click="SaveClicked"/>
+      <button text="Cancel" on-click="CancelClicked"/>
+    </horizontal>
+  </vertical>
+</bg>

@@ -1,0 +1,9 @@
+{
+  "id": "avatarColoring",
+  "displayName": "Avatar Coloring Extensions",
+  "minCoreVersion": "0.3.0",
+  "enabledByDefault": true,
+  "dependencies": [],
+  "capability": 2,
+  "settingsModSettingsKey": "enableAvatarColoringExtensions"
+}

@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="BeatSaber.Mod.props" />
+  <PropertyGroup>
+    <AssemblyName>MultiplayerChat.Addon.AvatarColoring</AssemblyName>
+    <RootNamespace>MultiplayerChat.Addon.AvatarColoring</RootNamespace>
+    <Version>1.0.0</Version>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <AddonManifestFile>avatarColoring.addon.json</AddonManifestFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="MultiplayerChat.Contracts">
+      <HintPath>$(ContractsDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MultiplayerChat">
+      <HintPath>$(CoreDllPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BeatSaberDir)\Libs\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SiraUtil">
+      <HintPath>$(BeatSaberDir)\Plugins\SiraUtil.dll</HintPath>
+    </Reference>
+    <Reference Include="BeatSaber.AvatarCore">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.AvatarCore.dll</HintPath>
+    </Reference>
+    <Reference Include="BeatSaber.BeatAvatarSDK">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.BeatAvatarSDK.dll</HintPath>
+    </Reference>
+    <Reference Include="BeatSaber.BeatAvatarAdapter">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.BeatAvatarAdapter.dll</HintPath>
+    </Reference>
+    <Reference Include="HMUI">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\HMUI.dll</HintPath>
+    </Reference>
+    <Reference Include="BSML">
+      <HintPath>$(BeatSaberDir)\Plugins\BSML.dll</HintPath>
+    </Reference>
+    <Reference Include="Zenject">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Zenject.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(BeatSaberDir)\Libs\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AvatarColoringAddon.cs" />
+    <Compile Include="AvatarColoring\**\*.cs" />
+    <Compile Include="UI\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="UI\AvatarColoringExtensionsSettingsView.bsml">
+      <LogicalName>MultiplayerChat.UI.AvatarColoringExtensionsSettingsView.bsml</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="UI\AvatarNameEntryView.bsml">
+      <LogicalName>MultiplayerChat.UI.AvatarNameEntryView.bsml</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="UI\AvatarLoadListView.bsml">
+      <LogicalName>MultiplayerChat.UI.AvatarLoadListView.bsml</LogicalName>
+    </EmbeddedResource>
+    <None Include="avatarColoring.addon.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>
+

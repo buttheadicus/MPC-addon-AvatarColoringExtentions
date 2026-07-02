@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bg xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://monkeymanboy.github.io/BSML-Docs/BSMLSchema.xsd">
+  <vertical pad="4" spacing="2" horizontal-fit="PreferredSize" preferred-width="220">
+    <vertical id="PresetListRoot" spacing="1" pad="0"
+              child-control-height="true"
+              child-expand-height="false"
+              child-control-width="true"
+              child-expand-width="false"/>
+    <horizontal spacing="2" horizontal-fit="PreferredSize" preferred-width="220">
+      <button id="DeleteModeButton" text="Delete" min-height="10" preferred-height="12" on-click="DeleteModeToggleClicked"/>
+    </horizontal>
+  </vertical>
+</bg>
