@@ -5,6 +5,7 @@
     <RootNamespace>MultiplayerChat.Addon.AvatarColoring</RootNamespace>
     <Version>1.0.0</Version>
     <OutputPath>bin\$(Configuration)\</OutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AddonManifestFile>avatarColoring.addon.json</AddonManifestFile>
   </PropertyGroup>
   <ItemGroup>
@@ -34,6 +35,9 @@
     </Reference>
     <Reference Include="HMUI">
       <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\HMUI.dll</HintPath>
+    </Reference>
+    <Reference Include="BeatSaber.ViewSystem">
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.ViewSystem.dll</HintPath>
     </Reference>
     <Reference Include="BSML">
       <HintPath>$(BeatSaberDir)\Plugins\BSML.dll</HintPath>

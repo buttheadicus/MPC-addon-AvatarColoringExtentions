@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using MultiplayerChat.Settings;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -10,7 +12,7 @@ using UnityEngine;
 
 namespace MultiplayerChat.AvatarColoring;
 
-// Reads/writes Beat Saber AvatarData.dat (JSON) under LocalLow for randomize and save/load presets.
+// reads/writes Beat Saber AvatarData.dat (JSON) under LocalLow for randomize and save/load presets.
 internal static class AvatarDatOperations
 {
     private static readonly string[] HeadTopIds =
@@ -46,6 +48,9 @@ internal static class AvatarDatOperations
         }
     }
 
+    // coalesces overlapping Apply / UI-open schedules so we only keep the latest deferred pass
+    private static int _bakDeleteScheduleSerial;
+
     internal static void TryDeleteAvatarBackup()
     {
         try
@@ -57,6 +62,34 @@ internal static class AvatarDatOperations
         catch (Exception ex)
         {
             MultiplayerChat.Plugin.Log?.Warn($"[MPChat][AvatarColoring] Could not delete AvatarData.dat.bak: {ex.Message}");
+        }
+    }
+
+    // delete now, again ~1s later, and one more retry in case File.Replace finishes late
+    internal static void ScheduleDeleteAvatarBackup()
+    {
+        TryDeleteAvatarBackup();
+        var serial = Interlocked.Increment(ref _bakDeleteScheduleSerial);
+        _ = DeleteAvatarBackupDeferredAsync(serial);
+    }
+
+    private static async Task DeleteAvatarBackupDeferredAsync(int serial)
+    {
+        try
+        {
+            await Task.Delay(1000).ConfigureAwait(false);
+            if (serial != Volatile.Read(ref _bakDeleteScheduleSerial))
+                return;
+            TryDeleteAvatarBackup();
+
+            await Task.Delay(1000).ConfigureAwait(false);
+            if (serial != Volatile.Read(ref _bakDeleteScheduleSerial))
+                return;
+            TryDeleteAvatarBackup();
+        }
+        catch (Exception ex)
+        {
+            MultiplayerChat.Plugin.Log?.Debug($"[MPChat][AvatarColoring] deferred bak delete: {ex.Message}");
         }
     }
 
@@ -84,7 +117,7 @@ internal static class AvatarDatOperations
             RandomizeAllColorObjects(root);
 
             File.WriteAllText(path, root.ToString(Formatting.Indented));
-            // New seed so the next randomize / in-editor random calls are not correlated to this file write.
+            // new seed so the next randomize / in-editor random calls are not correlated to this file write.
             UnityEngine.Random.InitState(
                 unchecked((int)DateTime.UtcNow.Ticks) ^ Environment.TickCount);
             return true;
@@ -170,7 +203,7 @@ internal static class AvatarDatOperations
         }
     }
 
-    // Removes a preset folder (nested AvatarData.dat layout) or a legacy flat file under Avatar Storage.
+    // removes a preset folder (nested AvatarData.dat layout) or a legacy flat file under Avatar Storage.
     internal static bool DeletePresetFromStorage(string presetName)
     {
         if (string.IsNullOrWhiteSpace(presetName))
@@ -219,10 +252,10 @@ internal static class AvatarDatOperations
                 src = legacyFlat;
             else
                 return false;
-            TryDeleteAvatarBackup();
+            ScheduleDeleteAvatarBackup();
             var dst = ChatIdFilePaths.AvatarDataFilePath;
             File.Copy(src, dst, overwrite: true);
-            TryDeleteAvatarBackup();
+            ScheduleDeleteAvatarBackup();
             return true;
         }
         catch (Exception ex)

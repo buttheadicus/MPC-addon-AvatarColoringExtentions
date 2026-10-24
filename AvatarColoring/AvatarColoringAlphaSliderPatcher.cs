@@ -1,4 +1,4 @@
-using System;
+we using System;
 using System.Collections;
 using System.Globalization;
 using BeatSaber.BeatAvatarAdapter.AvatarEditor;
@@ -8,6 +8,7 @@ using BeatSaberMarkupLanguage.Tags;
 using BeatSaberMarkupLanguage.Tags.Settings;
 using HMUI;
 using IPA.Utilities;
+using MultiplayerChat;
 using MultiplayerChat.Settings;
 using SiraUtil.Affinity;
 using TMPro;
@@ -18,7 +19,7 @@ using Zenject;
 
 namespace MultiplayerChat.AvatarColoring;
 
-// RGBA controls for the stock color editor (built in code, not BSML).
+// RGBA controls for the stock color editor (not here... but in the coed!!!!!! wowza!!).
 public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable, IDisposable
 {
     private const float SliderRgbNarrowMin = -100f;
@@ -39,37 +40,92 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
 
     private const float SliderVisualScale = 1.1f;
 
-    // Whole r/g/b/a column position in anchored pixels after layout parents this rect.
+    // whole r/g/b/a column position in anchored pixels after layout parents this rect.
     public static Vector2 RgbaSliderStackAnchoredPixelOffset = new Vector2(24f, 52f);
 
-    // Nudge the RGB mode / direct-entry toggle row (horizontal layout) inside the column.
+    // nudge the RGB mode / direct-entry toggle row (horizontal layout) inside the column.
     public static Vector2 RgbOptionsRowAnchoredPixelOffset = new Vector2(-13f, 7f);
 
     // -1 keeps auto order; otherwise set sibling index on the column under the parent row.
     public static int RgbaStackSiblingIndex = -1;
 
-    // Nudge r/g/b/a labels relative to each slider row.
+    // nudge r/g/b/a labels relative to each slider row.
     public static Vector2 RgbaChannelLetterAnchoredPixelNudge = new Vector2(10f, 0f);
 
     internal static AvatarColoringAlphaSliderPatcher? Instance { get; private set; }
 
-    internal static bool TryGetCommittedEditColor(out Color color)
-    {
-        if (Instance == null)
-        {
-            color = default;
-            return false;
-        }
+    // hsv get_color is always a=1. keep the last slider/AvatarData alpha across Apply and HSV callbacks.
+    private static Color? _lastKnownRgba;
 
-        color = Instance.ReadMergedLiveChannelColor();
-        return true;
+    internal static void RememberLiveColor(Color color) => _lastKnownRgba = color;
+
+    internal static bool IsApplyingFromOurSliders => Instance != null && Instance._applyingSlidersFromCode;
+
+    internal static void SyncFromColorWheel(Color color)
+    {
+        if (!ModSettings.EnableAvatarColoringExtensions)
+            return;
+        if (AvatarColorEditorDraft.IsCommitBypassActive)
+            return;
+        if (IsApplyingFromOurSliders)
+            return;
+
+        RememberLiveColor(color);
+        Instance?.ApplyChannelDisplayValues(color);
     }
 
-    [Inject] private readonly BeatAvatarEditorViewController _beatAvatarEditorViewController = null!;
+    internal static void MergeLiveAlpha(ref Color color)
+    {
+        if (!ModSettings.EnableAvatarColoringExtensions)
+            return;
+        // revert/commit bypass already has the color it wants, including snapshot alpha
+        if (AvatarColorEditorDraft.IsCommitBypassActive)
+            return;
+        // hsv wheel should pass through as-is; only keep our a when we pushed from the rgba row
+        if (!IsApplyingFromOurSliders)
+            return;
+        if (!TryGetLiveAlpha(out var a))
+            return;
+        color.a = a;
+    }
 
-    [Inject] private readonly AvatarDataModel _avatarDataModel = null!;
+    internal static bool TryGetLiveAlpha(out float a)
+    {
+        if (TryGetCommittedEditColor(out var c))
+        {
+            a = c.a;
+            return true;
+        }
 
-    [Inject] private readonly EditAvatarColorViewController _editColorViewController = null!;
+        a = 1f;
+        return false;
+    }
+
+    internal static bool TryGetCommittedEditColor(out Color color)
+    {
+        if (Instance != null)
+        {
+            color = Instance.ReadMergedLiveChannelColor();
+            return true;
+        }
+
+        if (_lastKnownRgba.HasValue)
+        {
+            color = _lastKnownRgba.Value;
+            return true;
+        }
+
+        color = default;
+        return false;
+    }
+
+    internal static void ClearCommittedColor() => _lastKnownRgba = null;
+
+    [Inject] private BeatAvatarEditorViewController _beatAvatarEditorViewController = null!;
+
+    [Inject] private AvatarDataModel _avatarDataModel = null!;
+
+    [Inject] private EditAvatarColorViewController _editColorViewController = null!;
 
     private GameObject? _alphaColumnRoot;
 
@@ -103,18 +159,196 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
 
     public void Initialize()
     {
+        if (Instance == this)
+            return;
+        if (Instance != null && Instance != this)
+        {
+            try
+            {
+                Instance.Dispose();
+            }
+            catch
+            {
+                // previous menu VC already destroyed
+            }
+        }
+
         Instance = this;
-        _beatAvatarEditorViewController.didRequestColorChangeEvent += HandleDidRequestColorChange;
-        _editColorViewController.didChangeColorEvent += HandleExternalColorChanged;
-        _editColorViewController.didFinishEvent += HandleEditAvatarColorDidFinish;
+        if (_beatAvatarEditorViewController != null)
+            _beatAvatarEditorViewController.didRequestColorChangeEvent += HandleDidRequestColorChange;
+        if (_editColorViewController != null)
+        {
+            _editColorViewController.didChangeColorEvent += HandleExternalColorChanged;
+            _editColorViewController.didFinishEvent += HandleEditAvatarColorDidFinish;
+        }
+    }
+
+    internal static void DropLive()
+    {
+        if (Instance == null)
+            return;
+        try
+        {
+            Instance.Dispose();
+        }
+        catch
+        {
+            Instance = null;
+        }
+    }
+
+    internal static void HandleDidActivate(
+        EditAvatarColorViewController colorEditor,
+        bool firstActivation,
+        bool addedToHierarchy,
+        bool screenSystemEnabling)
+    {
+        Debug.Log(
+            "[MPChat][AvatarColoring] color editor DidActivate first=" + firstActivation +
+            " added=" + addedToHierarchy +
+            " enabled=" + ModSettings.EnableAvatarColoringExtensions);
+        if (!ModSettings.EnableAvatarColoringExtensions)
+            return;
+        if (!firstActivation && !addedToHierarchy)
+            return;
+
+        try
+        {
+            var patcher = GetOrCreate(colorEditor);
+            if (patcher == null)
+            {
+                Plugin.Log?.Error("[MPChat][AvatarColoring] could not construct color slider patcher");
+                if (colorEditor != null)
+                    colorEditor.StartCoroutine(RetryAttach(colorEditor));
+                return;
+            }
+
+            patcher.PostfixEditColorDidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log?.Error($"[MPChat][AvatarColoring] color editor UI patch failed: {ex}");
+        }
+    }
+
+    internal static void HandleDidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
+    {
+        try
+        {
+            Instance?.PostfixEditColorDidDeactivate(removedFromHierarchy, screenSystemDisabling);
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log?.Error($"[MPChat][AvatarColoring] color editor DidDeactivate failed: {ex.Message}");
+        }
+    }
+
+    private static IEnumerator RetryAttach(EditAvatarColorViewController colorEditor)
+    {
+        var until = Time.unscaledTime + 2.5f;
+        while (colorEditor != null && Time.unscaledTime < until)
+        {
+            var patcher = GetOrCreate(colorEditor);
+            if (patcher != null)
+            {
+                patcher.PostfixEditColorDidActivate(true, true, false);
+                yield break;
+            }
+
+            yield return null;
+        }
+    }
+
+    private static AvatarColoringAlphaSliderPatcher? GetOrCreate(EditAvatarColorViewController colorEditor)
+    {
+        DropIfStale(colorEditor);
+        if (Instance != null)
+            return Instance;
+
+        var container = BeatSaberMarkupLanguage.BeatSaberUI.DiContainer;
+        if (container != null)
+        {
+            try
+            {
+                var patcher = container.Instantiate<AvatarColoringAlphaSliderPatcher>(new object[] { colorEditor });
+                patcher.BindColorEditor(colorEditor);
+                patcher.Initialize();
+                return patcher;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.Error($"[MPChat][AvatarColoring] Instantiate color patcher with arg failed: {ex.Message}");
+            }
+
+            try
+            {
+                var patcher = container.Instantiate<AvatarColoringAlphaSliderPatcher>();
+                patcher.BindColorEditor(colorEditor);
+                patcher.Initialize();
+                return patcher;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.Error($"[MPChat][AvatarColoring] Instantiate color patcher failed: {ex.Message}");
+                Debug.LogError("[MPChat][AvatarColoring] Instantiate color patcher failed: " + ex);
+            }
+        }
+
+        var bare = CreateBare(colorEditor);
+        bare.Initialize();
+        return bare;
+    }
+
+    private static void DropIfStale(EditAvatarColorViewController colorEditor)
+    {
+        if (Instance == null)
+            return;
+        var bound = Instance._editColorViewController;
+        if (bound != null && bound == colorEditor)
+            return;
+
+        Debug.Log("[MPChat][AvatarColoring] dropping stale color patcher after menu reload");
+        try
+        {
+            Instance.Dispose();
+        }
+        catch
+        {
+            Instance = null;
+        }
+    }
+
+    private static AvatarColoringAlphaSliderPatcher CreateBare(EditAvatarColorViewController colorEditor)
+    {
+        var patcher = new AvatarColoringAlphaSliderPatcher();
+        patcher.BindColorEditor(colorEditor);
+        Debug.Log("[MPChat][AvatarColoring] built color patcher without zenject");
+        return patcher;
+    }
+
+    private void BindColorEditor(EditAvatarColorViewController colorEditor)
+    {
+        _editColorViewController = colorEditor;
+        var editor = AvatarColoringLiveObjects.ResolveBeatAvatarEditor();
+        if (editor != null)
+            _beatAvatarEditorViewController = editor;
+        var model = AvatarColoringLiveObjects.ResolveAvatarDataModel(editor);
+        if (model != null)
+            _avatarDataModel = model;
     }
 
     private void HandleEditAvatarColorDidFinish(bool rawFinishParameter)
     {
+        var applied = AvatarColorEditorDraft.InterpretDidFinishAsApplied(rawFinishParameter);
+        // color Apply can sit in front of a later disk save; sweep bak either way
+        if (applied)
+            AvatarDatOperations.ScheduleDeleteAvatarBackup();
+
         if (!ModSettings.EnableAvatarColoringExtensions)
             return;
+        if (_editColorViewController == null || _beatAvatarEditorViewController == null)
+            return;
 
-        var applied = AvatarColorEditorDraft.InterpretDidFinishAsApplied(rawFinishParameter);
         AvatarColorEditorDraft.HandleDidFinish(_editColorViewController, _beatAvatarEditorViewController, applied);
     }
 
@@ -122,9 +356,21 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
     {
         if (Instance == this)
             Instance = null;
-        _beatAvatarEditorViewController.didRequestColorChangeEvent -= HandleDidRequestColorChange;
-        _editColorViewController.didChangeColorEvent -= HandleExternalColorChanged;
-        _editColorViewController.didFinishEvent -= HandleEditAvatarColorDidFinish;
+        try
+        {
+            if (_beatAvatarEditorViewController != null)
+                _beatAvatarEditorViewController.didRequestColorChangeEvent -= HandleDidRequestColorChange;
+            if (_editColorViewController != null)
+            {
+                _editColorViewController.didChangeColorEvent -= HandleExternalColorChanged;
+                _editColorViewController.didFinishEvent -= HandleEditAvatarColorDidFinish;
+            }
+        }
+        catch
+        {
+            // menu reload already destroyed the VCs
+        }
+
         TeardownAlphaUi();
     }
 
@@ -144,6 +390,7 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
     private void SyncSlidersFromReloadedAvatarData()
     {
         if (!ModSettings.EnableAvatarColoringExtensions
+            || _editColorViewController == null
             || !_editColorViewController.gameObject.activeInHierarchy
             || _channelsStackRoot == null)
             return;
@@ -158,6 +405,7 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         _applyingSlidersFromCode = true;
         try
         {
+            RememberLiveColor(c);
             _editColorViewController.SetColor(c);
             using (AvatarColorEditorDraft.CommitBypassScope())
                 _editColorViewController.InvokeMethod<object, EditAvatarColorViewController>("ChangeColor", c);
@@ -171,13 +419,27 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
 
     private void HandleExternalColorChanged(Color value)
     {
-        if (!ModSettings.EnableAvatarColoringExtensions || _applyingSlidersFromCode || _channelsStackRoot == null)
-            return;
+        SyncFromColorWheel(value);
+    }
 
+    private void ApplyChannelDisplayValues(Color value)
+    {
         _applyingSlidersFromCode = true;
         try
         {
-            ApplyChannelDisplayValues(value);
+            SetSliderDisplay(_rHmSlider, value.r);
+            SetSliderDisplay(_gHmSlider, value.g);
+            SetSliderDisplay(_bHmSlider, value.b);
+            SetSliderDisplay(_alphaHmSlider, value.a);
+
+            if (_rStringSetting != null)
+                _rStringSetting.Text = FormatDirectEntryScalar(value.r);
+            if (_gStringSetting != null)
+                _gStringSetting.Text = FormatDirectEntryScalar(value.g);
+            if (_bStringSetting != null)
+                _bStringSetting.Text = FormatDirectEntryScalar(value.b);
+            if (_aStringSetting != null)
+                _aStringSetting.Text = FormatDirectEntryScalar(value.a);
         }
         finally
         {
@@ -185,28 +447,24 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         }
     }
 
-    private void ApplyChannelDisplayValues(Color value)
+    private static void SetSliderDisplay(RangeValuesTextSlider? slider, float v)
     {
-        if (_rHmSlider != null)
-            _rHmSlider.value = value.r;
-        if (_gHmSlider != null)
-            _gHmSlider.value = value.g;
-        if (_bHmSlider != null)
-            _bHmSlider.value = value.b;
-        if (_alphaHmSlider != null)
-            _alphaHmSlider.value = value.a;
+        if (slider == null)
+            return;
 
-        if (_rStringSetting != null)
-            _rStringSetting.Text = FormatDirectEntryScalar(value.r);
-        if (_gStringSetting != null)
-            _gStringSetting.Text = FormatDirectEntryScalar(value.g);
-        if (_bStringSetting != null)
-            _bStringSetting.Text = FormatDirectEntryScalar(value.b);
-        if (_aStringSetting != null)
-            _aStringSetting.Text = FormatDirectEntryScalar(value.a);
+        slider.value = v;
+        var shown = FormatDirectEntryScalar(v);
+        var root = slider.transform.parent != null ? slider.transform.parent : slider.transform;
+        foreach (var tmp in root.GetComponentsInChildren<TMP_Text>(true))
+        {
+            var s = tmp.text?.Trim() ?? "";
+            if (s.Length == 1 && char.IsLetter(s[0]))
+                continue;
+            tmp.text = shown;
+        }
     }
 
-    // Round-trip friendly display for Direct # rows (no range clamp in direct mode).
+    // round-trip friendly display for Direct # rows (no range clamp in direct mode).
     private static string FormatDirectEntryScalar(float v)
     {
         if (float.IsNaN(v))
@@ -223,10 +481,15 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
     [AffinityPostfix]
     public void PostfixEditColorDidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
     {
+        AvatarDatOperations.ScheduleDeleteAvatarBackup();
+
         if (!ModSettings.EnableAvatarColoringExtensions || !addedToHierarchy)
             return;
+        if (_editColorViewController == null)
+            return;
 
-        AvatarColorEditorDraft.BeginIfNeeded(_avatarDataModel);
+        if (_avatarDataModel != null)
+            AvatarColorEditorDraft.BeginIfNeeded(_avatarDataModel);
         TeardownAlphaUi();
         BuildAlphaUi();
     }
@@ -235,10 +498,12 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
     [AffinityPostfix]
     public void PostfixEditColorDidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
     {
-        // Returning to the main avatar editor often deactivates this screen without removing it from the hierarchy.
-        // Skipping here left the draft active and skipped Abort revert until the whole editor closed.
+        // returning to the main avatar editor often deactivates this screen without removing it from the hierarchy.
+        // skipping here left the draft active and skipped Abort revert until the whole editor closed.
         StopRgbRowAnchoredNudgeCoroutine();
-        if (ModSettings.EnableAvatarColoringExtensions)
+        if (ModSettings.EnableAvatarColoringExtensions
+            && _editColorViewController != null
+            && _beatAvatarEditorViewController != null)
             AvatarColorEditorDraft.AbortIfStillActive(_editColorViewController, _beatAvatarEditorViewController);
         TeardownAlphaUi();
     }
@@ -262,6 +527,13 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         }
 
         var parentRow = wideRow ?? bottom;
+
+        for (var i = parentRow.childCount - 1; i >= 0; i--)
+        {
+            var child = parentRow.GetChild(i);
+            if (child != null && child.name == "MPChatAlphaColumn")
+                UnityEngine.Object.DestroyImmediate(child.gameObject);
+        }
 
         _alphaColumnRoot = new GameObject("MPChatAlphaColumn", typeof(RectTransform), typeof(VerticalLayoutGroup));
         _alphaColumnRoot.transform.SetParent(parentRow, false);
@@ -301,7 +573,8 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
 
         var c = AvatarColorEditContext.TryConsumePendingInitialColor(out var pending)
             ? pending
-            : _editColorViewController.color;
+            : (_lastKnownRgba ?? new Color(0f, 0f, 0f, 1f));
+        RememberLiveColor(c);
 
         BuildChannelWidgets(c);
 
@@ -415,28 +688,28 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         _rHmSlider = AddChannelSlider("r", initialColor.r, SliderMinForRgb(), SliderMaxForRgb(),
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.r = v;
                 PushColor(x);
             });
         _gHmSlider = AddChannelSlider("g", initialColor.g, SliderMinForRgb(), SliderMaxForRgb(),
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.g = v;
                 PushColor(x);
             });
         _bHmSlider = AddChannelSlider("b", initialColor.b, SliderMinForRgb(), SliderMaxForRgb(),
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.b = v;
                 PushColor(x);
             });
         _alphaHmSlider = AddChannelSlider("a", initialColor.a, SliderAlphaMin, SliderAlphaMax,
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.a = v;
                 PushColor(x);
             });
@@ -447,34 +720,34 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
     private void BuildStringChannels(Color initialColor)
     {
         _rStringSetting = AddChannelStringSetting("r", initialColor.r,
-            () => _editColorViewController.color.r,
+            () => ReadMergedLiveChannelColor().r,
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.r = v;
                 PushColor(x);
             });
         _gStringSetting = AddChannelStringSetting("g", initialColor.g,
-            () => _editColorViewController.color.g,
+            () => ReadMergedLiveChannelColor().g,
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.g = v;
                 PushColor(x);
             });
         _bStringSetting = AddChannelStringSetting("b", initialColor.b,
-            () => _editColorViewController.color.b,
+            () => ReadMergedLiveChannelColor().b,
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.b = v;
                 PushColor(x);
             });
         _aStringSetting = AddChannelStringSetting("a", initialColor.a,
-            () => _editColorViewController.color.a,
+            () => ReadMergedLiveChannelColor().a,
             v =>
             {
-                var x = _editColorViewController.color;
+                var x = ReadMergedLiveChannelColor();
                 x.a = v;
                 PushColor(x);
             });
@@ -520,10 +793,14 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         ApplyChannelDisplayValues(ReadMergedLiveChannelColor());
     }
 
-    // VC.color can lag thumbs/strings while ChangeColor is deferred (alpha especially). Merge live widgets before rebuilds.
+    // lastKnown is the real color. slider thumbs snap to increment 1, so reading .value after a
+    // 0-1 hsv pick would turn apply into 0 0 0 1 and paint the wheel black.
     internal Color ReadMergedLiveChannelColor()
     {
-        var c = _editColorViewController.color;
+        if (_lastKnownRgba.HasValue)
+            return _lastKnownRgba.Value;
+
+        var c = new Color(0f, 0f, 0f, 1f);
         if (_channelsStackRoot == null)
             return c;
 
@@ -563,7 +840,7 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         && Mathf.Approximately(a.g, b.g)
         && Mathf.Approximately(a.b, b.b);
 
-    // VerticalLayoutGroup resets child positions after rebuild; nudge on the next frames after layout runs.
+    // verticalLayoutGroup resets child positions after rebuild; nudge on the next frames after layout runs.
     private void ScheduleRgbOptionsRowAnchoredNudge(RectTransform? rowRt = null)
     {
         rowRt ??= _alphaColumnRoot != null
@@ -608,6 +885,13 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         yield return null;
         yield return null;
         yield return new WaitForEndOfFrame();
+        if (rowRt == null)
+        {
+            _rgbRowAnchoredNudgeCoroutine = null;
+            _rgbRowNudgeCoroutineHost = null;
+            yield break;
+        }
+
         rowRt.anchoredPosition += delta;
         _rgbRowAnchoredNudgeCoroutine = null;
         _rgbRowNudgeCoroutineHost = null;
@@ -620,13 +904,21 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         if (!AvatarColorEditorDraft.ShouldInterceptChangeColor)
             return true;
 
-        __instance.SetColor(color);
-        // Stock ChangeColor drives preview and lobby UV edits; skipping it left coloring dead once draft snapshot worked.
-        // Calling ChangeColor again without bypass would recurse forever; CommitBypassScope turns off intercept for one nested call.
+        // do not SetColor here: that writes back into the hsv wheel. slider pushes already SetColor themselves.
         using (AvatarColorEditorDraft.CommitBypassScope())
             __instance.InvokeMethod<object, EditAvatarColorViewController>("ChangeColor", color);
 
+        if (_avatarDataModel?.avatarData != null
+            && AvatarDataColorResolver.TrySetColor(_avatarDataModel.avatarData, AvatarColorEditContext.LastPart, color))
+            _avatarDataModel.ReportAvatarChanged();
+
         return false;
+    }
+
+    // core affinity shim calls this by name; without it SaveColorChange was never deferred.
+    internal static bool TryPrefixDeferSaveColorChangeWhileDraft(AvatarPart avatarEditPart)
+    {
+        return Instance?.PrefixDeferSaveColorChangeWhileDraft(avatarEditPart) ?? true;
     }
 
     [AffinityPrefix]
@@ -634,6 +926,8 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
     public bool PrefixDeferSaveColorChangeWhileDraft(AvatarPart avatarEditPart)
     {
         if (!ModSettings.EnableAvatarColoringExtensions)
+            return true;
+        if (_avatarDataModel == null || _editColorViewController == null)
             return true;
 
         var data = _avatarDataModel.avatarData;
@@ -643,8 +937,7 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
         return false;
     }
 
-    /// When vc.color matches AvatarData for this edit, stock is syncing UI after Cancel (or no-op). When it differs,
-    /// vc holds uncommitted preview while SaveColorChange would persist it early (wheel Apply / dragging paths).
+    // when vc.color matches AvatarData, stock is syncing after Cancel; when it differs, defer SaveColorChange
     private static bool ShouldDeferSaveColorDuringDraft(AvatarPart avatarEditPart, Color vcColor, AvatarData? data)
     {
         if (!AvatarColorEditorDraft.ShouldInterceptChangeColor || data == null)
@@ -667,10 +960,14 @@ public sealed class AvatarColoringAlphaSliderPatcher : IAffinity, IInitializable
 
     private void PushColor(Color c)
     {
+        RememberLiveColor(c);
+        if (_editColorViewController == null)
+            return;
+
         _editColorViewController.SetColor(c);
         _editColorViewController.InvokeMethod<object, EditAvatarColorViewController>("ChangeColor", c);
 
-        if (_avatarDataModel.avatarData != null
+        if (_avatarDataModel?.avatarData != null
             && AvatarDataColorResolver.TrySetColor(_avatarDataModel.avatarData, AvatarColorEditContext.LastPart, c))
             _avatarDataModel.ReportAvatarChanged();
     }

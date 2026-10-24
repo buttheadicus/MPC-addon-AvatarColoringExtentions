@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace MultiplayerChat.AvatarColoring;
 
-// Tracks the last color edit request so RGBA sliders can match AvatarData (fixes alpha stuck at 1 on open).
+// tracks the last color edit request so RGBA sliders can match AvatarData (fixes alpha stuck at 1 on open).
 internal static class AvatarColorEditContext
 {
     private static Color? _pendingInitialColor;
@@ -17,6 +17,7 @@ internal static class AvatarColorEditContext
         _pendingInitialColor = currentColor;
         LastPart = part;
         LastUvSegment = uvSegment;
+        AvatarColoringAlphaSliderPatcher.RememberLiveColor(currentColor);
     }
 
     internal static bool TryConsumePendingInitialColor(out Color c)

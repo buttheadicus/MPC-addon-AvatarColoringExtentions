@@ -1,4 +1,5 @@
 using System;
+using MultiplayerChat.AvatarColoring;
 using MultiplayerChat.Contracts;
 
 namespace MultiplayerChat.Addon.AvatarColoring;
@@ -30,10 +31,14 @@ public sealed class AvatarColoringAddon : IMpChatAddon, IMpChatSettingsPage
             "Avatar Coloring Extensions");
         host.SetCapability(AddonCapability.AvatarColoring, true);
         host.PatchAllHarmony(Id, typeof(AvatarColoringAddon).Assembly);
+        AvatarEditorHarmonyBootstrap.Apply(host);
     }
 
     public void OnUnload()
     {
+        AvatarEditorHarmonyBootstrap.Reset();
+        AvatarColoringEditorPatcher.DropLive();
+        AvatarColoringAlphaSliderPatcher.DropLive();
         _host?.UnpatchHarmony(Id);
         _host?.UnregisterSettingsPresenter(Id);
         _host?.UnregisterSettingsPage(this);

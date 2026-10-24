@@ -10,7 +10,7 @@ using Newtonsoft.Json;
 
 namespace MultiplayerChat.AvatarColoring;
 
-// Holds active avatar editor instances so save/load flows can refresh disk-backed presets.
+// holds active avatar editor instances so save/load flows can refresh disk-backed presets.
 internal static class AvatarColoringEditorSession
 {
     internal static BeatAvatarEditorViewController? EditorVc { get; private set; }
@@ -30,11 +30,13 @@ internal static class AvatarColoringEditorSession
 
     internal static void RefreshAfterAvatarDatChangedOnDisk()
     {
+        AvatarColoringAlphaSliderPatcher.ClearCommittedColor();
         TryReloadAvatarDisk(DataModel);
         RefreshBeatAvatarEditor(EditorVc);
         if (DataModel?.avatarData != null)
             PackedExtrasString.SyncSeparateColorsFromPackedWire(DataModel.avatarData);
         AvatarColoringAlphaSliderPatcher.NotifyAvatarDataReloadedWhileColorUiOpen();
+        AvatarApplyLiveRefresh.ForceFromDisk();
     }
 
     private static void RefreshBeatAvatarEditor(BeatAvatarEditorViewController? vc)

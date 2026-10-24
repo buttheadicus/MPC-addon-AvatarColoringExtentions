@@ -9,7 +9,7 @@ using Newtonsoft.Json;
 
 namespace MultiplayerChat.AvatarColoring;
 
-// Buffers avatar writes during the stock color screen: ChangeColor is deferred until Apply; Cancel restores the snapshot.
+// buffers avatar writes during the stock color screen: ChangeColor is deferred until Apply; Cancel restores the snapshot.
 internal static class AvatarColorEditorDraft
 {
     private static readonly JsonSerializerSettings SerializerSettings = new()
@@ -28,7 +28,9 @@ internal static class AvatarColorEditorDraft
 
     private static int _commitBypassDepth;
 
-    // If stock Apply triggers didFinish with false (or Cancel with true), flip this constant.
+    private static bool _applyPressed;
+
+    // if stock Apply triggers didFinish with false (or Cancel with true), flip this constant.
     internal static bool DidFinishParameterTrueMeansAppliedChanges = true;
 
     internal static bool InterpretDidFinishAsApplied(bool rawParameter) =>
@@ -36,6 +38,10 @@ internal static class AvatarColorEditorDraft
 
     internal static bool ShouldInterceptChangeColor =>
         ModSettings.EnableAvatarColoringExtensions && _active && _commitBypassDepth <= 0;
+
+    internal static bool IsCommitBypassActive => _commitBypassDepth > 0;
+
+    internal static void MarkApplyPressed() => _applyPressed = true;
 
     internal static IDisposable CommitBypassScope()
     {
@@ -48,7 +54,9 @@ internal static class AvatarColorEditorDraft
         if (!ModSettings.EnableAvatarColoringExtensions || model?.avatarData == null)
             return;
 
-        // Drop any stale snapshot (e.g. Cancel kept payload until DidDeactivate; never orphan across sessions).
+        if (_active && ReferenceEquals(_model, model) && !string.IsNullOrEmpty(_snapshotJson))
+            return;
+
         Clear();
 
         _model = model;
@@ -74,7 +82,8 @@ internal static class AvatarColorEditorDraft
             return;
         }
 
-        if (InterpretDidFinishAsApplied(appliedChanges))
+        // Apply button always commits. stock didFinish(_colorChanged) is false when only RGBA sliders moved.
+        if (_applyPressed || InterpretDidFinishAsApplied(appliedChanges))
         {
             try
             {
@@ -94,7 +103,7 @@ internal static class AvatarColorEditorDraft
         }
         finally
         {
-            // Cancel path: keep snapshot + model until DidDeactivate runs AbortIfStillActive (second revert is idempotent).
+            // cancel path: keep snapshot + model until DidDeactivate runs AbortIfStillActive (second revert is idempotent).
             _active = false;
             _commitBypassDepth = 0;
         }
@@ -104,6 +113,12 @@ internal static class AvatarColorEditorDraft
     {
         if (vc == null || beatEditor == null)
             return;
+
+        if (_applyPressed)
+        {
+            Clear();
+            return;
+        }
 
         if (_model == null || string.IsNullOrEmpty(_snapshotJson))
             return;
@@ -123,16 +138,25 @@ internal static class AvatarColorEditorDraft
         var color = vc.color;
         if (AvatarColoringAlphaSliderPatcher.TryGetCommittedEditColor(out var merged))
             color = merged;
+        AvatarColoringAlphaSliderPatcher.MergeLiveAlpha(ref color);
+        AvatarColoringAlphaSliderPatcher.RememberLiveColor(color);
 
         vc.SetColor(color);
         using (CommitBypassScope())
             vc.InvokeMethod<object, EditAvatarColorViewController>("ChangeColor", color);
 
-        // Stock ChangeColor / HSV paths often persist RGB only (alpha becomes 1). Write full RGBA from our controls.
+        // stock HSV get_color / ChangeColor is RGB with a=1. write full RGBA from our controls after that.
         if (_model?.avatarData != null
             && AvatarDataColorResolver.TrySetColor(_model.avatarData, AvatarColorEditContext.LastPart, color))
         {
             _model.ReportAvatarChanged();
+        }
+
+        var editor = AvatarColoringEditorSession.EditorVc;
+        if (editor != null)
+        {
+            using (CommitBypassScope())
+                editor.SaveColorChange(AvatarColorEditContext.LastPart);
         }
     }
 
@@ -183,6 +207,7 @@ internal static class AvatarColorEditorDraft
         _snapshotJson = null;
         _model = null;
         _commitBypassDepth = 0;
+        _applyPressed = false;
     }
 
     private sealed class BypassScope : IDisposable

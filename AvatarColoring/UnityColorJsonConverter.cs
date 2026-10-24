@@ -5,8 +5,8 @@ using UnityEngine;
 
 namespace MultiplayerChat.AvatarColoring;
 
-// UnityEngine.Color exposes .linear (and related) in a way Newtonsoft treats as a self-referencing graph on BS 1.40+.
-// Snapshot AvatarData with r/g/b/a only so draft serialize/deserialize succeeds.
+// unityEngine.Color exposes .linear (and related) in a way Newtonsoft treats as a self-referencing graph on BS 1.40+.
+// snapshot AvatarData with r/g/b/a only so draft serialize/deserialize succeeds.
 internal sealed class UnityColorJsonConverter : JsonConverter<Color>
 {
     public override void WriteJson(JsonWriter writer, Color value, JsonSerializer serializer)

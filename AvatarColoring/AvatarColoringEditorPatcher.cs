@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using BeatSaber.BeatAvatarAdapter.AvatarEditor;
 using BeatSaber.BeatAvatarSDK;
+using MultiplayerChat;
 using MultiplayerChat.AvatarExtras.Patches.Menu;
 using MultiplayerChat.Settings;
 using MultiplayerChat.UI;
@@ -28,36 +30,179 @@ public sealed class AvatarColoringEditorPatcher : IAffinity
 
     public static float AvatarToolsButtonFontSize = -1f;
 
-    [Inject] private readonly BeatAvatarEditorViewController _beatAvatarEditorViewController = null!;
-    [Inject] private readonly AvatarDataModel _avatarDataModel = null!;
-    [Inject] private readonly AvatarNameEntryFlowCoordinator _avatarNameEntryFlowCoordinator = null!;
-    [Inject] private readonly AvatarLoadListFlowCoordinator _avatarLoadListFlowCoordinator = null!;
+    [Inject] private BeatAvatarEditorViewController _beatAvatarEditorViewController = null!;
+    [Inject] private AvatarDataModel _avatarDataModel = null!;
+    [Inject(Optional = true)] private AvatarNameEntryFlowCoordinator? _avatarNameEntryFlowCoordinator;
+    [Inject(Optional = true)] private AvatarLoadListFlowCoordinator? _avatarLoadListFlowCoordinator;
 
     private GameObject? _toolsRowRoot;
+    private static AvatarColoringEditorPatcher? _live;
+    private Coroutine? _retry;
+    private BeatAvatarEditorViewController? _retryHost;
+
+    internal static void DropLive()
+    {
+        _live?.StopToolsRowRetry();
+        _live = null;
+        AvatarColoringMenuFlows.Drop();
+    }
+
+    internal static void HandleDidActivate(
+        BeatAvatarEditorViewController editor,
+        bool firstActivation,
+        bool addedToHierarchy,
+        bool screenSystemEnabling)
+    {
+        Debug.Log(
+            "[MPChat][AvatarColoring] editor DidActivate first=" + firstActivation +
+            " added=" + addedToHierarchy +
+            " enabled=" + ModSettings.EnableAvatarColoringExtensions);
+        if (!firstActivation && !addedToHierarchy)
+            return;
+        if (!ModSettings.EnableAvatarColoringExtensions)
+            return;
+
+        try
+        {
+            var patcher = GetOrCreate(editor);
+            if (patcher == null)
+            {
+                Debug.LogError("[MPChat][AvatarColoring] could not construct editor patcher");
+                Plugin.Log?.Error("[MPChat][AvatarColoring] could not construct editor patcher");
+                if (editor != null)
+                    editor.StartCoroutine(RetryAttach(editor));
+                return;
+            }
+
+            patcher.PostfixBeatAvatarEditorDidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
+            patcher.StartToolsRowRetry(editor);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[MPChat][AvatarColoring] editor UI patch failed: " + ex);
+            Plugin.Log?.Error($"[MPChat][AvatarColoring] editor UI patch failed: {ex}");
+        }
+    }
+
+    internal static void HandleDidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
+    {
+        try
+        {
+            _live?.PostfixBeatAvatarEditorDidDeactivate(removedFromHierarchy, screenSystemDisabling);
+            _live?.StopToolsRowRetry();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[MPChat][AvatarColoring] editor DidDeactivate failed: " + ex.Message);
+            Plugin.Log?.Error($"[MPChat][AvatarColoring] editor DidDeactivate failed: {ex.Message}");
+        }
+
+        if (removedFromHierarchy)
+            _live = null;
+    }
+
+    private static IEnumerator RetryAttach(BeatAvatarEditorViewController editor)
+    {
+        var until = Time.unscaledTime + 2.5f;
+        while (editor != null && Time.unscaledTime < until)
+        {
+            var patcher = GetOrCreate(editor);
+            if (patcher != null)
+            {
+                patcher.PostfixBeatAvatarEditorDidActivate(true, true, false);
+                patcher.StartToolsRowRetry(editor);
+                yield break;
+            }
+
+            yield return null;
+        }
+    }
+
+    private static AvatarColoringEditorPatcher? GetOrCreate(BeatAvatarEditorViewController editor)
+    {
+        DropIfStale(editor);
+        if (_live != null)
+            return _live;
+
+        var container = BeatSaberMarkupLanguage.BeatSaberUI.DiContainer;
+        if (container != null)
+        {
+            try
+            {
+                _live = container.Instantiate<AvatarColoringEditorPatcher>(new object[] { editor });
+                _live.BindEditor(editor);
+                return _live;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.Error($"[MPChat][AvatarColoring] Instantiate with editor arg failed: {ex.Message}");
+            }
+
+            try
+            {
+                _live = container.Instantiate<AvatarColoringEditorPatcher>();
+                _live.BindEditor(editor);
+                return _live;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[MPChat][AvatarColoring] Instantiate editor patcher failed: " + ex);
+                Plugin.Log?.Error($"[MPChat][AvatarColoring] Instantiate editor patcher failed: {ex.Message}");
+            }
+        }
+
+        _live = CreateBare(editor);
+        return _live;
+    }
+
+    private static void DropIfStale(BeatAvatarEditorViewController editor)
+    {
+        if (_live == null)
+            return;
+        var bound = _live._beatAvatarEditorViewController;
+        if (bound != null && bound == editor)
+            return;
+
+        Debug.Log("[MPChat][AvatarColoring] dropping stale editor patcher after menu reload");
+        _live.StopToolsRowRetry();
+        _live = null;
+        AvatarColoringMenuFlows.Drop();
+    }
+
+    private static AvatarColoringEditorPatcher CreateBare(BeatAvatarEditorViewController editor)
+    {
+        var patcher = new AvatarColoringEditorPatcher();
+        patcher.BindEditor(editor);
+        Debug.Log("[MPChat][AvatarColoring] built editor patcher without zenject");
+        return patcher;
+    }
+
+    private void BindEditor(BeatAvatarEditorViewController editor)
+    {
+        _beatAvatarEditorViewController = editor;
+        var model = AvatarColoringLiveObjects.ResolveAvatarDataModel(editor);
+        if (model != null)
+            _avatarDataModel = model;
+        if (_avatarNameEntryFlowCoordinator == null)
+            _avatarNameEntryFlowCoordinator = null;
+        if (_avatarLoadListFlowCoordinator == null)
+            _avatarLoadListFlowCoordinator = null;
+    }
 
     [AffinityPatch(typeof(BeatAvatarEditorViewController), "DidActivate")]
     [AffinityPostfix]
     public void PostfixBeatAvatarEditorDidActivate(bool firstActivation, bool addedToHierarchy,
         bool screenSystemEnabling)
     {
-        AvatarDatOperations.TryDeleteAvatarBackup();
+        // stock Apply can leave AvatarData.dat.bak; clear now and again after ~1s
+        AvatarDatOperations.ScheduleDeleteAvatarBackup();
 
         if (!ModSettings.EnableAvatarColoringExtensions)
             return;
 
-        AvatarColoringEditorSession.Attach(_beatAvatarEditorViewController, _avatarDataModel);
-
-        if (_toolsRowRoot != null)
-            return;
-
-        try
-        {
-            BuildToolsRow();
-        }
-        catch (Exception ex)
-        {
-            MultiplayerChat.Plugin.Log?.Error($"[MPChat][AvatarColoring] Editor UI failed: {ex.Message}");
-        }
+        if (_avatarDataModel != null)
+            AvatarColoringEditorSession.Attach(_beatAvatarEditorViewController, _avatarDataModel);
+        TryEnsureToolsRow();
     }
 
     [AffinityPatch(typeof(BeatAvatarEditorViewController), "DidDeactivate")]
@@ -68,6 +213,7 @@ public sealed class AvatarColoringEditorPatcher : IAffinity
             return;
 
         AvatarColoringEditorSession.Clear();
+        StopToolsRowRetry();
 
         if (_toolsRowRoot != null)
         {
@@ -76,12 +222,101 @@ public sealed class AvatarColoringEditorPatcher : IAffinity
         }
     }
 
+    // HandleApplyButtonWasPressed calls AvatarDataModel.SaveAsync -> File.Replace creates .bak
+    [AffinityPatch(typeof(BeatAvatarEditorViewController), "HandleApplyButtonWasPressed")]
+    [AffinityPostfix]
+    public void PostfixBeatAvatarEditorApplyPressed()
+    {
+        AvatarDatOperations.ScheduleDeleteAvatarBackup();
+    }
+
+    private void StartToolsRowRetry(BeatAvatarEditorViewController editor)
+    {
+        if (_toolsRowRoot != null || editor == null)
+            return;
+        if (_retry != null && _retryHost != null)
+            return;
+        StopToolsRowRetry();
+        _retryHost = editor;
+        _retry = editor.StartCoroutine(RetryToolsRow(editor));
+    }
+
+    private void StopToolsRowRetry()
+    {
+        if (_retry != null && _retryHost != null)
+        {
+            try
+            {
+                _retryHost.StopCoroutine(_retry);
+            }
+            catch
+            {
+                // editor already gone
+            }
+        }
+
+        _retry = null;
+        _retryHost = null;
+    }
+
+    private IEnumerator RetryToolsRow(BeatAvatarEditorViewController editor)
+    {
+        var until = Time.unscaledTime + 2.5f;
+        var loggedMissing = false;
+        while (editor != null && Time.unscaledTime < until)
+        {
+            TryEnsureToolsRow();
+            if (_toolsRowRoot != null)
+            {
+                _retry = null;
+                yield break;
+            }
+
+            if (!loggedMissing)
+            {
+                Debug.Log("[MPChat][AvatarColoring] EditPanel not ready, retrying tools row");
+                loggedMissing = true;
+            }
+
+            yield return null;
+        }
+
+        _retry = null;
+        if (_toolsRowRoot == null)
+        {
+            Debug.LogError("[MPChat][AvatarColoring] tools row never built (EditPanel missing)");
+            Plugin.Log?.Error("[MPChat][AvatarColoring] tools row never built (EditPanel missing)");
+        }
+    }
+
+    private void TryEnsureToolsRow()
+    {
+        if (_toolsRowRoot != null)
+            return;
+        if (_beatAvatarEditorViewController == null)
+            return;
+        try
+        {
+            BuildToolsRow();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[MPChat][AvatarColoring] Editor UI failed: " + ex);
+            Plugin.Log?.Error($"[MPChat][AvatarColoring] Editor UI failed: {ex}");
+        }
+    }
+
     private void BuildToolsRow()
     {
         var editPanel = EditAvatarViewControllerPatcher.ResolveEditPanel(_beatAvatarEditorViewController);
         if (editPanel == null)
+            return;
+
+        var existing = editPanel.Find("MPChatAvatarToolsRow");
+        if (existing != null)
         {
-            MultiplayerChat.Plugin.Log?.Warn("[MPChat][AvatarColoring] EditPanel not found; avatar tools row skipped.");
+            _toolsRowRoot = existing.gameObject;
+            Debug.Log("[MPChat][AvatarColoring] tools row already on editor");
             return;
         }
 
@@ -126,6 +361,8 @@ public sealed class AvatarColoringEditorPatcher : IAffinity
             LayoutRebuilder.ForceRebuildLayoutImmediate(editRt);
         LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
         rt.anchoredPosition = AvatarToolsRowAnchoredPixelOffset;
+        Debug.Log("[MPChat][AvatarColoring] tools row built");
+        Plugin.Log?.Error("[MPChat][AvatarColoring] tools row built");
     }
 
     private static Button? ResolveToolsButtonTemplate(Transform editPanel, Transform? randomizePanel, Transform vcRoot)
@@ -200,7 +437,7 @@ public sealed class AvatarColoringEditorPatcher : IAffinity
             return true;
         if (n.Contains("prevbutton") || n.Contains("nextbutton"))
             return true;
-        // Arrow-only chrome under RandomizePanel
+        // arrow-only chrome under RandomizePanel
         return n.Contains("<") || n.Contains(">");
     }
 
@@ -317,17 +554,65 @@ public sealed class AvatarColoringEditorPatcher : IAffinity
 
     private void OnSaveClicked()
     {
-        var mainFlow = BeatSaberMarkupLanguage.BeatSaberUI.MainFlowCoordinator;
-        var topFlow = FlowCoordinatorHelper.GetTopFlowCoordinator(mainFlow);
-        _avatarNameEntryFlowCoordinator.ParentFlow = topFlow;
-        topFlow.PresentFlowCoordinator(_avatarNameEntryFlowCoordinator);
+        try
+        {
+            if (_avatarNameEntryFlowCoordinator == null)
+                _avatarNameEntryFlowCoordinator = AvatarColoringMenuFlows.ResolveName();
+            var nameFlow = _avatarNameEntryFlowCoordinator;
+            if (nameFlow == null)
+            {
+                Debug.LogError("[MPChat][AvatarColoring] save flow missing after menu reload");
+                Plugin.Log?.Error("[MPChat][AvatarColoring] save flow missing after menu reload");
+                return;
+            }
+
+            var mainFlow = BeatSaberMarkupLanguage.BeatSaberUI.MainFlowCoordinator;
+            var topFlow = FlowCoordinatorHelper.GetTopFlowCoordinator(mainFlow);
+            if (topFlow == null)
+            {
+                Debug.LogError("[MPChat][AvatarColoring] save: no top flow coordinator");
+                return;
+            }
+
+            nameFlow.ParentFlow = topFlow;
+            topFlow.PresentFlowCoordinator(nameFlow);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[MPChat][AvatarColoring] save present failed: " + ex);
+            Plugin.Log?.Error("[MPChat][AvatarColoring] save present failed: " + ex.Message);
+        }
     }
 
     private void OnLoadClicked()
     {
-        var mainFlow = BeatSaberMarkupLanguage.BeatSaberUI.MainFlowCoordinator;
-        var topFlow = FlowCoordinatorHelper.GetTopFlowCoordinator(mainFlow);
-        _avatarLoadListFlowCoordinator.ParentFlow = topFlow;
-        topFlow.PresentFlowCoordinator(_avatarLoadListFlowCoordinator);
+        try
+        {
+            if (_avatarLoadListFlowCoordinator == null)
+                _avatarLoadListFlowCoordinator = AvatarColoringMenuFlows.ResolveLoad();
+            var loadFlow = _avatarLoadListFlowCoordinator;
+            if (loadFlow == null)
+            {
+                Debug.LogError("[MPChat][AvatarColoring] load flow missing after menu reload");
+                Plugin.Log?.Error("[MPChat][AvatarColoring] load flow missing after menu reload");
+                return;
+            }
+
+            var mainFlow = BeatSaberMarkupLanguage.BeatSaberUI.MainFlowCoordinator;
+            var topFlow = FlowCoordinatorHelper.GetTopFlowCoordinator(mainFlow);
+            if (topFlow == null)
+            {
+                Debug.LogError("[MPChat][AvatarColoring] load: no top flow coordinator");
+                return;
+            }
+
+            loadFlow.ParentFlow = topFlow;
+            topFlow.PresentFlowCoordinator(loadFlow);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError("[MPChat][AvatarColoring] load present failed: " + ex);
+            Plugin.Log?.Error("[MPChat][AvatarColoring] load present failed: " + ex.Message);
+        }
     }
 }

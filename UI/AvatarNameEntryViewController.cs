@@ -63,7 +63,7 @@ public sealed class AvatarNameEntryViewController : BSMLAutomaticViewController
 
     private void OnBarPressed()
     {
-        // Opening the keyboard is handled by BSML string-setting; keep hook for parity with chat keyboard pattern.
+        // opening the keyboard is handled by BSML string-setting; keep hook for parity with chat keyboard pattern.
     }
 
     private void OnTmpSubmit(string _)
