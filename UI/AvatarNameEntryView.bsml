@@ -4,6 +4,7 @@
   <vertical pad="8" spacing="4">
     <text text="Name your preset. A subfolder is created under Avatar Storage with AvatarData.dat inside." font-size="3.5" align="Center"/>
     <string-setting id="AvatarNameInput" text="Preset name" show-buttons="false"/>
+    <button text="Save to already existing avatar?" on-click="SaveToExistingClicked"/>
     <horizontal spacing="2">
       <button text="Save" on-click="SaveClicked"/>
       <button text="Cancel" on-click="CancelClicked"/>

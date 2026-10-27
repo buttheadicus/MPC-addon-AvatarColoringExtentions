@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MultiplayerChat.Addon.AvatarColoring")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a538c12647a0c2abbf7483a01700f8dc391aface")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ebe2fe877687f7fc4b17cec3daa06f45caee8816")]
 [assembly: System.Reflection.AssemblyProductAttribute("MultiplayerChat.Addon.AvatarColoring")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MultiplayerChat.Addon.AvatarColoring")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

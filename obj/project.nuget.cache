@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "AAJ/3erhjsA=",
+  "dgSpecHash": "xkScZRxxKPE=",
   "success": true,
-  "projectFilePath": "c:\\Users\\goria\\MPC-addon-AvatarColoringExtentions\\MultiplayerChat.Addon.AvatarColoring.csproj",
+  "projectFilePath": "C:\\Users\\goria\\MPC-addon-AvatarColoringExtentions\\MultiplayerChat.Addon.AvatarColoring.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\goria\\.nuget\\packages\\bepinex.assemblypublicizer.msbuild\\0.4.1\\bepinex.assemblypublicizer.msbuild.0.4.1.nupkg.sha512"
   ],

@@ -12,14 +12,20 @@ public sealed class AvatarLoadListFlowCoordinator : FlowCoordinator
 
     public HMUI.FlowCoordinator? ParentFlow { get; set; }
 
+    private bool _saveOverMode;
+
+    internal void BeginSaveOver() => _saveOverMode = true;
+
     protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
     {
+        SetTitle(_saveOverMode ? "Save to avatar" : "Load avatar");
         if (firstActivation)
         {
-            SetTitle("Load avatar");
             showBackButton = true;
             ProvideInitialViewControllers(_viewController);
         }
+
+        _viewController.SetSaveOverMode(_saveOverMode);
 
         if (addedToHierarchy)
             _viewController.PresetSelected += OnPresetSelected;
@@ -28,11 +34,26 @@ public sealed class AvatarLoadListFlowCoordinator : FlowCoordinator
     protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
     {
         if (removedFromHierarchy)
+        {
             _viewController.PresetSelected -= OnPresetSelected;
+            _saveOverMode = false;
+            _viewController.SetSaveOverMode(false);
+        }
     }
 
     private void OnPresetSelected(string presetFileName)
     {
+        if (_saveOverMode)
+        {
+            if (!AvatarDatOperations.CopyAvatarDatToPreset(presetFileName))
+                return;
+            var parent = ParentFlow;
+            Dismiss();
+            if (parent is AvatarNameEntryFlowCoordinator nameFlow)
+                nameFlow.Close();
+            return;
+        }
+
         if (!AvatarDatOperations.ApplyPresetFromStorage(presetFileName))
             return;
 

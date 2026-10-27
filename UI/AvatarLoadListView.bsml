@@ -7,8 +7,11 @@
               child-expand-height="false"
               child-control-width="true"
               child-expand-width="false"/>
-    <horizontal spacing="2" horizontal-fit="PreferredSize" preferred-width="220">
-      <button id="DeleteModeButton" text="Delete" min-height="10" preferred-height="12" on-click="DeleteModeToggleClicked"/>
+    <horizontal spacing="0" horizontal-fit="PreferredSize" child-align="MiddleCenter" child-expand-width="false">
+      <button id="PrevPageButton" text="&lt;" min-height="10" preferred-height="12" preferred-width="12" on-click="PrevPageClicked"/>
+      <button id="DeleteModeButton" text="Delete" min-height="10" preferred-height="12" preferred-width="80" on-click="DeleteModeToggleClicked"/>
+      <button id="NextPageButton" text="&gt;" min-height="10" preferred-height="12" preferred-width="12" on-click="NextPageClicked"/>
     </horizontal>
+    <text id="PageLabel" text="1/1" font-size="3" align="Right"/>
   </vertical>
 </bg>

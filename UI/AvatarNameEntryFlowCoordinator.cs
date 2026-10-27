@@ -24,6 +24,7 @@ public sealed class AvatarNameEntryFlowCoordinator : FlowCoordinator
         {
             _viewController.Committed += OnCommitted;
             _viewController.Cancelled += OnCancelled;
+            _viewController.SaveToExisting += OnSaveToExisting;
         }
     }
 
@@ -33,6 +34,7 @@ public sealed class AvatarNameEntryFlowCoordinator : FlowCoordinator
         {
             _viewController.Committed -= OnCommitted;
             _viewController.Cancelled -= OnCancelled;
+            _viewController.SaveToExisting -= OnSaveToExisting;
         }
     }
 
@@ -44,7 +46,19 @@ public sealed class AvatarNameEntryFlowCoordinator : FlowCoordinator
 
     private void OnCancelled() => Dismiss();
 
+    private void OnSaveToExisting()
+    {
+        var load = AvatarColoringMenuFlows.ResolveLoad();
+        if (load == null)
+            return;
+        load.ParentFlow = this;
+        load.BeginSaveOver();
+        PresentFlowCoordinator(load);
+    }
+
     protected override void BackButtonWasPressed(ViewController topViewController) => Dismiss();
+
+    internal void Close() => Dismiss();
 
     private void Dismiss()
     {

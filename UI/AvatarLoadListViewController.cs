@@ -15,12 +15,24 @@ public sealed class AvatarLoadListViewController : BSMLAutomaticViewController
 {
     private const int SlotsPerRow = 7;
 
+    // 4 rows of 10 plus the delete row stays above the floor. 5 rows falls through
+    private const int RowsPerPage = 4;
+
+    private const int PageSize = SlotsPerRow * RowsPerPage;
+
     public event Action<string>? PresetSelected;
 
     [UIComponent("PresetListRoot")] private RectTransform? _presetRoot;
     [UIComponent("DeleteModeButton")] private Button? _deleteModeButton;
+    [UIComponent("PrevPageButton")] private Button? _prevPageButton;
+    [UIComponent("NextPageButton")] private Button? _nextPageButton;
+
+    [UIComponent("PageLabel")] private TextMeshProUGUI? _pageLabel;
 
     private bool _deleteMode;
+    private bool _saveOverMode;
+
+    private int _page;
 
     [UIAction("#post-parse")]
     private void PostParse()
@@ -42,10 +54,41 @@ public sealed class AvatarLoadListViewController : BSMLAutomaticViewController
         BsmlDefaultStringCleanup.StripPlaceholderLabels(gameObject);
     }
 
+    [UIAction("PrevPageClicked")]
+    private void PrevPageClicked()
+    {
+        if (_page <= 0)
+            return;
+        _page--;
+        RebuildList();
+    }
+
+    [UIAction("NextPageClicked")]
+    private void NextPageClicked()
+    {
+        _page++;
+        RebuildList();
+    }
+
     [UIAction("DeleteModeToggleClicked")]
     private void DeleteModeToggleClicked()
     {
+        if (_saveOverMode)
+            return;
         _deleteMode = !_deleteMode;
+        RefreshDeleteModeUi();
+        RebuildList();
+    }
+
+    internal void SetSaveOverMode(bool on)
+    {
+        _saveOverMode = on;
+        if (on)
+        {
+            _deleteMode = false;
+            _page = 0;
+        }
+
         RefreshDeleteModeUi();
         RebuildList();
     }
@@ -91,7 +134,14 @@ public sealed class AvatarLoadListViewController : BSMLAutomaticViewController
         var tmp = _deleteModeButton.GetComponentInChildren<TextMeshProUGUI>(true);
         if (tmp == null)
             return;
-        if (_deleteMode)
+        if (_saveOverMode)
+        {
+            tmp.text = "Tap a name to save to.";
+            tmp.fontSize = 3f;
+            tmp.enableWordWrapping = true;
+            tmp.alignment = TextAlignmentOptions.Center;
+        }
+        else if (_deleteMode)
         {
             tmp.text =
                 "DELETE MODE ON. TAP ON AVATAR NAME TO DELETE THE AVATAR. TAP ON THIS BUTTON AGAIN TO TURN DELETE MODE OFF.";
@@ -133,8 +183,25 @@ public sealed class AvatarLoadListViewController : BSMLAutomaticViewController
         MultiplayerChat.Plugin.Log?.Info(
             $"[MPChat][AvatarLoad] {names.Count} presets under {ChatIdFilePaths.AvatarStorageDirectoryPath}");
 
+        var pageCount = Math.Max(1, (names.Count + PageSize - 1) / PageSize);
+        if (_page >= pageCount)
+            _page = pageCount - 1;
+        if (_page < 0)
+            _page = 0;
+        if (_pageLabel != null)
+            _pageLabel.text = (_page + 1) + "/" + pageCount;
+
+        // page arrows stay in save-over, and whenever the list actually has another page
+        var showPages = _saveOverMode || pageCount > 1;
+        if (_prevPageButton != null)
+            _prevPageButton.gameObject.SetActive(showPages);
+        if (_nextPageButton != null)
+            _nextPageButton.gameObject.SetActive(showPages);
+
         var deleteMode = _deleteMode;
-        for (var i = 0; i < names.Count; i += SlotsPerRow)
+        var pageStart = _page * PageSize;
+        var pageEnd = Math.Min(pageStart + PageSize, names.Count);
+        for (var i = pageStart; i < pageEnd; i += SlotsPerRow)
         {
             var row = new GameObject("PresetRow", typeof(RectTransform));
             row.transform.SetParent(_presetRoot, false);
@@ -155,7 +222,7 @@ public sealed class AvatarLoadListViewController : BSMLAutomaticViewController
             h.childControlHeight = true;
             h.childControlWidth = true;
 
-            var end = Math.Min(i + SlotsPerRow, names.Count);
+            var end = Math.Min(i + SlotsPerRow, pageEnd);
             for (var j = i; j < end; j++)
             {
                 var name = names[j];
@@ -175,6 +242,12 @@ public sealed class AvatarLoadListViewController : BSMLAutomaticViewController
 
     private void OnPresetSlotClicked(string presetFileName, bool asDelete)
     {
+        if (_saveOverMode)
+        {
+            PresetSelected?.Invoke(presetFileName);
+            return;
+        }
+
         if (asDelete)
         {
             if (!AvatarDatOperations.DeletePresetFromStorage(presetFileName))

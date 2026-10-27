@@ -12,6 +12,7 @@ public sealed class AvatarNameEntryViewController : BSMLAutomaticViewController
 {
     public event Action<string>? Committed;
     public event Action? Cancelled;
+    public event Action? SaveToExisting;
 
     [UIComponent("AvatarNameInput")] private StringSetting? _nameInput;
 
@@ -86,4 +87,7 @@ public sealed class AvatarNameEntryViewController : BSMLAutomaticViewController
 
     [UIAction("CancelClicked")]
     private void CancelClicked() => Cancelled?.Invoke();
+
+    [UIAction("SaveToExistingClicked")]
+    private void SaveToExistingClicked() => SaveToExisting?.Invoke();
 }
